@@ -1,151 +1,97 @@
 import streamlit as st
 import pandas as pd
 import math
-from pathlib import Path
+import matplotlib.pyplot as plt
 
-# Set the title and favicon that appear in the Browser's tab bar.
 st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
+    page_title="Disaster-Ready Community Cost Estimator",
+    page_icon=":house:",
+    layout="wide"
 )
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
-
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
-
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
-
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
-
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
-
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
-
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
-
-    return gdp_df
-
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
+st.title(":house: Disaster-Ready Community Cost Estimator")
+st.markdown(
+    "This tool estimates the cost of creating a disaster-ready community with solar and battery backups."
 )
 
-''
-''
+st.sidebar.header("Community Inputs")
+num_houses = st.sidebar.number_input("Number of Houses in the Community", min_value=1, value=100)
+average_daily_consumption = st.sidebar.number_input("Average Daily Energy Consumption per House (kWh)", value=30.0)
+daily_solar_production = st.sidebar.number_input("Daily Solar Energy Production per House (kWh)", value=35.0)
+battery_cost_per_kwh = st.sidebar.number_input("Battery Cost per kWh ($)", value=200.0)
+solar_cost_per_kw = st.sidebar.number_input("Solar Installation Cost per kW ($)", value=2500.0)
+blackout_duration_hours = st.sidebar.number_input("Expected Blackout Duration (Hours)", value=48)
+critical_load_percentage = st.sidebar.slider("Critical Load Percentage During Blackout (%)", 10, 100, 50)
 
+def calculate_energy_needs(num_houses, average_daily_consumption, blackout_duration_hours, critical_load_percentage):
+    blackout_duration_days = blackout_duration_hours / 24
+    total_daily_consumption = num_houses * average_daily_consumption
+    critical_load = (critical_load_percentage / 100) * total_daily_consumption
+    total_energy_needed = critical_load * blackout_duration_days
+    return total_daily_consumption, total_energy_needed
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+def calculate_costs(total_energy_needed, num_houses, daily_solar_production, battery_cost_per_kwh, solar_cost_per_kw):
+    peak_solar_hours = 6  # Adjust for location
+    total_battery_cost = math.ceil(total_energy_needed) * battery_cost_per_kwh
+    total_solar_capacity = math.ceil(num_houses * (daily_solar_production / peak_solar_hours))
+    total_solar_cost = total_solar_capacity * solar_cost_per_kw
+    return total_battery_cost, total_solar_cost, total_battery_cost + total_solar_cost
 
-st.header(f'GDP in {to_year}', divider='gray')
+total_daily_consumption, total_energy_needed = calculate_energy_needs(
+    num_houses,
+    average_daily_consumption,
+    blackout_duration_hours,
+    critical_load_percentage
+)
 
-''
+total_battery_cost, total_solar_cost, total_project_cost = calculate_costs(
+    total_energy_needed,
+    num_houses,
+    daily_solar_production,
+    battery_cost_per_kwh,
+    solar_cost_per_kw
+)
 
-cols = st.columns(4)
+st.header("Community Disaster-Readiness Analysis")
+st.subheader("Energy Needs")
+st.metric("Total Daily Community Energy Consumption", f"{total_daily_consumption:,.2f} kWh")
+st.metric("Total Energy Required During Blackout", f"{total_energy_needed:,.2f} kWh")
 
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
+st.subheader("Cost Estimates")
+st.metric("Total Battery Cost", f"${total_battery_cost:,.2f}")
+st.metric("Total Solar Installation Cost", f"${total_solar_cost:,.2f}")
+st.metric("Total Project Cost", f"${total_project_cost:,.2f}")
 
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
+st.subheader("Energy and Cost Breakdown")
+cols = st.columns(2)
 
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
+with cols[0]:
+    energy_data = pd.DataFrame({
+        "Metric": ["Daily Consumption", "Energy Needed (Blackout)"],
+        "Energy (kWh)": [total_daily_consumption, total_energy_needed]
+    })
+    fig, ax = plt.subplots()
+    energy_data.plot(kind="bar", x="Metric", y="Energy (kWh)", ax=ax, legend=False)
+    ax.set_ylabel("Energy (kWh)")
+    ax.set_title("Energy Requirements")
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45)
+    st.pyplot(fig)
 
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+with cols[1]:
+    cost_data = pd.DataFrame({
+        "Cost Item": ["Battery", "Solar Installation"],
+        "Cost ($)": [total_battery_cost, total_solar_cost]
+    })
+    fig2, ax2 = plt.subplots()
+    cost_data.plot(kind="bar", x="Cost Item", y="Cost ($)", ax=ax2, legend=False)
+    ax2.set_ylabel("Cost ($)")
+    ax2.set_title("Cost Breakdown")
+    ax2.set_xticklabels(ax2.get_xticklabels(), rotation=45)
+    st.pyplot(fig2)
+
+st.subheader("Benefits of Disaster-Ready Communities")
+st.markdown(
+    "By investing in solar and battery storage, communities can reduce blackout impacts and ensure energy resilience."
+)
+
+st.info("Use this analysis to plan your construction project and make your community safer and disaster-ready!")
